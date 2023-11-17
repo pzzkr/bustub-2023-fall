@@ -60,6 +60,13 @@ class TrieNode {
   // Note: if you want to convert `unique_ptr` into `shared_ptr`, you can use `std::shared_ptr<T>(std::move(ptr))`.
   virtual auto Clone() const -> std::unique_ptr<TrieNode> { return std::make_unique<TrieNode>(children_); }
 
+  auto HasChild(const char& c) const -> bool { return children_.find(c) != children_.end(); }
+
+  auto GetChildNode(const char& c) const -> std::shared_ptr<const TrieNode> {
+      assert(HasChild(c));
+      return children_.find(c)->second;
+  }
+
   // A map of children, where the key is the next character in the key, and the value is the next TrieNode.
   // You MUST store the children information in this structure. You are NOT allowed to remove the `const` from
   // the structure.
