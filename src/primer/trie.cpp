@@ -1,7 +1,7 @@
 #include "primer/trie.h"
+#include <stack>
 #include <string_view>
 #include "common/exception.h"
-#include <stack>
 
 namespace bustub {
 
