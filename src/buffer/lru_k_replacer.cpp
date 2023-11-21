@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/lru_k_replacer.h"
+#include <algorithm>
 #include "common/exception.h"
 
 namespace bustub {
@@ -27,7 +28,7 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
 
   *frame_id = -1;
   size_t max_k_distance = 0;
-  size_t smallest_earliest_ts = current_timestamp_;
+  std::vector<std::unique_ptr<LRUKNode>> inf_k_distance_nodes;
   for (auto &[fid, node] : node_store_) {
     if (evictable_.find(fid) == evictable_.end()) {
       continue;
@@ -37,15 +38,22 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
       k_distance = std::numeric_limits<size_t>::max();
     }
 
-    // TODO(justinxu): optimize the logic to handle infinite k distance nodes
-    if (k_distance > max_k_distance ||
-        (k_distance == std::numeric_limits<size_t>::max() && node.EarliestTimestamp() < smallest_earliest_ts)) {
+    if (k_distance > max_k_distance) {
       *frame_id = fid;
       max_k_distance = k_distance;
-      if (k_distance == std::numeric_limits<size_t>::max()) {
-        smallest_earliest_ts = node.EarliestTimestamp();
-      }
     }
+
+    if (k_distance == std::numeric_limits<size_t>::max()) {
+      inf_k_distance_nodes.emplace_back(std::make_unique<LRUKNode>(node));
+    }
+  }
+
+  if (!inf_k_distance_nodes.empty()) {
+    *frame_id =
+        std::min_element(inf_k_distance_nodes.begin(), inf_k_distance_nodes.end(),
+                         [](const auto &a, const auto &b) { return a->EarliestTimestamp() < b->EarliestTimestamp(); })
+            ->get()
+            ->FrameId();
   }
 
   if (*frame_id == -1) {
@@ -65,6 +73,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
 
   if (node_store_.find(frame_id) == node_store_.end()) {
     LRUKNode lru_node;
+    lru_node.SetFid(frame_id);
     lru_node.SetK(k_);
     node_store_[frame_id] = std::move(lru_node);
   }

@@ -27,6 +27,10 @@ enum class AccessType { Unknown = 0, Lookup, Scan, Index };
 
 class LRUKNode {
  public:
+  auto FrameId() const -> size_t { return fid_; }
+
+  void SetFid(frame_id_t fid) { fid_ = fid; }
+
   void SetK(size_t k) { k_ = k; }
 
   void RecordAccess(size_t timestamp) {
@@ -38,14 +42,12 @@ class LRUKNode {
 
   auto EarliestTimestamp() const -> size_t { return history_.front(); }
 
-  auto LatestTimestamp() const -> size_t { return history_.back(); }
-
   auto Size() const -> size_t { return history_.size(); }
 
  private:
   /** History of last seen K timestamps of this page. Least recent timestamp stored in front. */
   // Remove maybe_unused if you start using them. Feel free to change the member variables as you want.
-
+  frame_id_t fid_;
   std::list<size_t> history_;
   size_t k_;
 };
