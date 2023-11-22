@@ -150,6 +150,8 @@ class BufferPoolManager {
    */
   auto FlushPage(page_id_t page_id) -> bool;
 
+  auto FlushPgInternal(page_id_t page_id) -> bool;
+
   /**
    * TODO(P1): Add implementation
    *
