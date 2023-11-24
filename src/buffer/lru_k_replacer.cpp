@@ -33,17 +33,14 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
     if (evictable_.find(fid) == evictable_.end()) {
       continue;
     }
-    size_t k_distance = current_timestamp_ - node.EarliestTimestamp();
-    if (node.Size() < k_) {
-      k_distance = std::numeric_limits<size_t>::max();
-    }
+    size_t k_distance = GetWeightedKDistance(node);
 
     if (k_distance > max_k_distance) {
       *frame_id = fid;
       max_k_distance = k_distance;
     }
 
-    if (k_distance == std::numeric_limits<size_t>::max()) {
+    if (k_distance == INFINITE_K_DISTANCE) {
       inf_k_distance_nodes.emplace_back(std::make_unique<LRUKNode>(node));
     }
   }
@@ -65,7 +62,7 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
   return true;
 }
 
-void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType access_type) {
+void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {
   std::lock_guard<std::mutex> lock(latch_);
   if (frame_id >= static_cast<int>(replacer_size_)) {
     throw std::invalid_argument{"invalid frame id"};
@@ -78,7 +75,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
     node_store_[frame_id] = std::move(lru_node);
   }
 
-  node_store_[frame_id].RecordAccess(current_timestamp_++);
+  node_store_[frame_id].RecordAccess(current_timestamp_++, access_type);
 }
 
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {

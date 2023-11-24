@@ -65,7 +65,7 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   return &pages_[frame_id];
 }
 
-auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
+auto BufferPoolManager::FetchPage(page_id_t page_id, AccessType access_type) -> Page * {
   std::lock_guard<std::mutex> lock(latch_);
   // return if found in buffer pool
   frame_id_t frame_id;
@@ -98,7 +98,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   future.wait();
 
   page_table_.insert({page_id, frame_id});
-  replacer_->RecordAccess(frame_id);
+  replacer_->RecordAccess(frame_id, access_type);
   replacer_->SetEvictable(frame_id, false);
 
   return &pages_[frame_id];

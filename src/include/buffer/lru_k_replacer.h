@@ -25,6 +25,20 @@ namespace bustub {
 
 enum class AccessType { Unknown = 0, Lookup, Scan, Index };
 
+static auto AccessTypeScore(AccessType type) -> size_t {
+  switch (type) {
+    case (AccessType::Unknown):
+    case (AccessType::Index):
+      return 1;
+    case (AccessType::Scan):
+      return 2;
+    case (AccessType::Lookup):
+      return 3;
+    default:
+      return 1;
+  }
+}
+
 class LRUKNode {
  public:
   auto FrameId() const -> size_t { return fid_; }
@@ -33,23 +47,33 @@ class LRUKNode {
 
   void SetK(size_t k) { k_ = k; }
 
-  void RecordAccess(size_t timestamp) {
-    history_.emplace_back(timestamp);
+  void RecordAccess(size_t timestamp, AccessType access_type = AccessType::Unknown) {
+    size_t score = AccessTypeScore(access_type);
+    history_.emplace_back(AccessRecord{timestamp, score});
+    total_score_ += score;
     if (history_.size() > k_) {
+      total_score_ -= history_.front().score_;
       history_.pop_front();
     }
   }
 
-  auto EarliestTimestamp() const -> size_t { return history_.front(); }
+  auto EarliestTimestamp() const -> size_t { return history_.front().timestamp_; }
+
+  auto TotalScore() const -> size_t { return total_score_; }
 
   auto Size() const -> size_t { return history_.size(); }
 
  private:
+  struct AccessRecord {
+    size_t timestamp_;
+    size_t score_;
+  };
+
   /** History of last seen K timestamps of this page. Least recent timestamp stored in front. */
-  // Remove maybe_unused if you start using them. Feel free to change the member variables as you want.
   frame_id_t fid_;
-  std::list<size_t> history_;
+  std::list<AccessRecord> history_;
   size_t k_;
+  size_t total_score_{0};
 };
 
 /**
@@ -164,8 +188,20 @@ class LRUKReplacer {
   auto Size() -> size_t;
 
  private:
-  // TODO(student): implement me! You can replace these member variables as you like.
-  // Remove maybe_unused if you start using them.
+  auto GetKDistance(const LRUKNode &node) const -> size_t {
+    size_t k_distance = current_timestamp_ - node.EarliestTimestamp();
+    if (node.Size() < k_) {
+      k_distance = INFINITE_K_DISTANCE;
+    }
+    return k_distance;
+  }
+
+  auto GetWeightedKDistance(const LRUKNode &node) const -> size_t {
+    size_t k_distance = GetKDistance(node);
+    return k_distance * node.TotalScore() / k_;
+  }
+
+  static constexpr size_t INFINITE_K_DISTANCE = std::numeric_limits<size_t>::max();
   std::unordered_map<frame_id_t, LRUKNode> node_store_;
   std::unordered_map<frame_id_t, bool> evictable_;
   size_t current_timestamp_{0};
