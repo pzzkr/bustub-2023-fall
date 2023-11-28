@@ -16,7 +16,10 @@
 
 namespace bustub {
 
-LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {}
+LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {
+  node_store_.resize(replacer_size_);
+  evictable_.resize(replacer_size_, false);
+}
 
 auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
   std::lock_guard<std::mutex> lock(latch_);
@@ -27,15 +30,17 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
   }
 
   *frame_id = -1;
+  std::shared_ptr<LRUKNode> node;
   size_t max_k_distance = 0;
-  std::vector<std::unique_ptr<LRUKNode>> inf_k_distance_nodes;
-  for (auto &[fid, node] : node_store_) {
-    if (evictable_.find(fid) == evictable_.end()) {
+  std::vector<std::shared_ptr<LRUKNode>> inf_k_distance_nodes;
+  for (size_t fid = 0; fid < replacer_size_; fid++) {
+    node = node_store_[fid];
+    if (!evictable_[fid]) {
       continue;
     }
-    size_t k_distance = current_timestamp_ - node.EarliestTimestamp();
-    if (node.Size() < k_) {
-      k_distance = std::numeric_limits<size_t>::max();
+    size_t k_distance = current_timestamp_ - node->EarliestTimestamp();
+    if (node->Size() < k_) {
+      k_distance = LRUKReplacer::MAX_K_DISTANCE;
     }
 
     if (k_distance > max_k_distance) {
@@ -43,8 +48,8 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
       max_k_distance = k_distance;
     }
 
-    if (k_distance == std::numeric_limits<size_t>::max()) {
-      inf_k_distance_nodes.emplace_back(std::make_unique<LRUKNode>(node));
+    if (k_distance == LRUKReplacer::MAX_K_DISTANCE) {
+      inf_k_distance_nodes.emplace_back(node);
     }
   }
 
@@ -60,8 +65,9 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
     return false;
   }
 
-  node_store_.erase(*frame_id);
-  evictable_.erase(*frame_id);
+  node_store_[*frame_id] = nullptr;
+  evictable_[*frame_id] = false;
+  current_size_--;
   return true;
 }
 
@@ -71,28 +77,34 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
     throw std::invalid_argument{"invalid frame id"};
   }
 
-  if (node_store_.find(frame_id) == node_store_.end()) {
-    LRUKNode lru_node;
-    lru_node.SetFid(frame_id);
-    lru_node.SetK(k_);
-    node_store_[frame_id] = std::move(lru_node);
+  if (!node_store_[frame_id]) {
+    auto lru_node = std::make_shared<LRUKNode>();
+    lru_node->SetFid(frame_id);
+    lru_node->SetK(k_);
+    node_store_[frame_id] = lru_node;
   }
 
-  node_store_[frame_id].RecordAccess(current_timestamp_++);
+  node_store_[frame_id]->RecordAccess(current_timestamp_++);
 }
 
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
   std::lock_guard<std::mutex> lock(latch_);
   current_timestamp_++;
 
-  if (set_evictable && node_store_.find(frame_id) == node_store_.end()) {
+  if (set_evictable && !node_store_[frame_id]) {
     return;
   }
 
   if (set_evictable) {
+    if (!evictable_[frame_id]) {
+      current_size_++;
+    }
     evictable_[frame_id] = true;
   } else {
-    evictable_.erase(frame_id);
+    if (evictable_[frame_id]) {
+      current_size_--;
+    }
+    evictable_[frame_id] = false;
   }
 }
 
@@ -100,21 +112,22 @@ void LRUKReplacer::Remove(frame_id_t frame_id) {
   std::lock_guard<std::mutex> lock(latch_);
   current_timestamp_++;
 
-  if (node_store_.find(frame_id) == node_store_.end()) {
+  if (!node_store_[frame_id]) {
     return;
   }
 
-  if (evictable_.find(frame_id) == evictable_.end()) {
+  if (!evictable_[frame_id]) {
     throw std::invalid_argument{"invalid frame id"};
   }
 
-  node_store_.erase(frame_id);
-  evictable_.erase(frame_id);
+  node_store_[frame_id] = nullptr;
+  evictable_[frame_id] = false;
+  current_size_--;
 }
 
 auto LRUKReplacer::Size() -> size_t {
   std::lock_guard<std::mutex> lock(latch_);
-  return evictable_.size();
+  return current_size_;
 }
 
 }  // namespace bustub

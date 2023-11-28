@@ -14,6 +14,7 @@
 
 #include <limits>
 #include <list>
+#include <memory>
 #include <mutex>  // NOLINT
 #include <unordered_map>
 #include <vector>
@@ -164,11 +165,11 @@ class LRUKReplacer {
   auto Size() -> size_t;
 
  private:
-  // TODO(student): implement me! You can replace these member variables as you like.
-  // Remove maybe_unused if you start using them.
-  std::unordered_map<frame_id_t, LRUKNode> node_store_;
-  std::unordered_map<frame_id_t, bool> evictable_;
+  static constexpr size_t MAX_K_DISTANCE = std::numeric_limits<size_t>::max();
+  std::vector<std::shared_ptr<LRUKNode>> node_store_;
+  std::vector<bool> evictable_;
   size_t current_timestamp_{0};
+  size_t current_size_{0};
   size_t replacer_size_;
   size_t k_;
   std::mutex latch_;
