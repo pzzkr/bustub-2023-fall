@@ -43,6 +43,7 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   frame_id_t frame_id;
   if (free_list_.empty()) {
     if (!replacer_->Evict(&frame_id)) {
+      *page_id = INVALID_PAGE_ID;
       return nullptr;
     }
     FlushPgInternal(pages_[frame_id].GetPageId());

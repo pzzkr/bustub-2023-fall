@@ -123,6 +123,51 @@ class DiskExtendibleHashTable {
                       ExtendibleHTableBucketPage<K, V, KC> *new_bucket, uint32_t new_bucket_idx,
                       uint32_t local_depth_mask);
 
+  auto SplitBucket(ExtendibleHTableDirectoryPage *directory, uint32_t bucket_idx) -> bool {
+    // create the split bucket and insert it into the directory
+    page_id_t split_page_id;
+    bpm_->NewPageGuarded(&split_page_id);
+    if (split_page_id == INVALID_PAGE_ID) {
+      return false;
+    }
+    auto split_bucket = bpm_->FetchPageBasic(split_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
+    split_bucket->Init();
+
+    uint32_t split_idx = directory->GetSplitImageIndex(bucket_idx);
+    uint32_t local_depth = directory->GetLocalDepth(bucket_idx);
+    directory->SetBucketPageId(split_idx, split_page_id);
+    directory->SetLocalDepth(split_idx, local_depth);
+
+    // populate all split bucket pointers
+    uint32_t idx_diff = 1 << directory->GetLocalDepth(split_idx);
+    for (int i = split_idx - idx_diff; i >= 0; i -= idx_diff) {
+      directory->SetBucketPageId(i, split_page_id);
+      directory->SetLocalDepth(i, local_depth);
+    }
+    for (int i = split_idx + idx_diff; i < int(directory->Size()); i += idx_diff) {
+      directory->SetBucketPageId(i, split_page_id);
+      directory->SetLocalDepth(i, local_depth);
+    }
+
+    // redistribute key value pairs among newly split buckets
+    page_id_t bucket_page_id = directory->GetBucketPageId(bucket_idx);
+    if (bucket_page_id == INVALID_PAGE_ID) {
+      return false;
+    }
+    auto bucket = bpm_->FetchPageBasic(bucket_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
+    int size = bucket->Size();
+    std::list<std::pair<K, V>> entries;
+    for (int i = 0; i < size; i++) {
+      entries.push_back(bucket->EntryAt(i));
+    }
+    bucket->Clear();
+
+    for (auto &entry : entries) {
+      Insert(entry.first, entry.second);
+    }
+    return true;
+  }
+
   // member variables
   std::string index_name_;
   BufferPoolManager *bpm_;
