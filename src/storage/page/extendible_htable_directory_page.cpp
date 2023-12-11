@@ -24,6 +24,7 @@ void ExtendibleHTableDirectoryPage::Init(uint32_t max_depth) {
   max_depth_ = max_depth;
   global_depth_ = 0;
   std::fill(bucket_page_ids_, bucket_page_ids_ + HTABLE_DIRECTORY_ARRAY_SIZE, INVALID_PAGE_ID);
+  std::fill(local_depths_, local_depths_ + HTABLE_DIRECTORY_ARRAY_SIZE, 0);
 }
 
 auto ExtendibleHTableDirectoryPage::HashToBucketIndex(uint32_t hash) const -> uint32_t {
@@ -42,7 +43,7 @@ void ExtendibleHTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id
 }
 
 auto ExtendibleHTableDirectoryPage::GetSplitImageIndex(uint32_t bucket_idx) const -> uint32_t {
-  int split_idx = bucket_idx ^ (1 << (local_depths_[bucket_idx] - 1));
+  uint32_t split_idx = bucket_idx ^ (1 << (local_depths_[bucket_idx] - 1));
   return split_idx;
 }
 

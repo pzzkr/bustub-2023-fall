@@ -123,14 +123,15 @@ class DiskExtendibleHashTable {
                       ExtendibleHTableBucketPage<K, V, KC> *new_bucket, uint32_t new_bucket_idx,
                       uint32_t local_depth_mask);
 
-  auto SplitBucket(ExtendibleHTableDirectoryPage *directory, uint32_t bucket_idx) -> bool {
+  auto SplitBucket(ExtendibleHTableDirectoryPage *directory, ExtendibleHTableBucketPage<K, V, KC> *bucket,
+                   uint32_t bucket_idx) -> bool {
     // create the split bucket and insert it into the directory
     page_id_t split_page_id;
-    bpm_->NewPageGuarded(&split_page_id);
+    BasicPageGuard split_bucket_guard = bpm_->NewPageGuarded(&split_page_id);
     if (split_page_id == INVALID_PAGE_ID) {
       return false;
     }
-    auto split_bucket = bpm_->FetchPageBasic(split_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
+    auto split_bucket = split_bucket_guard.AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
     split_bucket->Init();
 
     uint32_t split_idx = directory->GetSplitImageIndex(bucket_idx);
@@ -139,7 +140,7 @@ class DiskExtendibleHashTable {
     directory->SetLocalDepth(split_idx, local_depth);
 
     // populate all split bucket pointers
-    uint32_t idx_diff = 1 << directory->GetLocalDepth(split_idx);
+    uint32_t idx_diff = 1 << local_depth;
     for (int i = split_idx - idx_diff; i >= 0; i -= idx_diff) {
       directory->SetBucketPageId(i, split_page_id);
       directory->SetLocalDepth(i, local_depth);
@@ -154,7 +155,6 @@ class DiskExtendibleHashTable {
     if (bucket_page_id == INVALID_PAGE_ID) {
       return false;
     }
-    auto bucket = bpm_->FetchPageBasic(bucket_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
     int size = bucket->Size();
     std::list<std::pair<K, V>> entries;
     for (int i = 0; i < size; i++) {
@@ -163,9 +163,55 @@ class DiskExtendibleHashTable {
     bucket->Clear();
 
     for (auto &entry : entries) {
-      Insert(entry.first, entry.second);
+      uint32_t target_idx = directory->HashToBucketIndex(Hash(entry.first));
+      if (target_idx == bucket_idx) {
+        bucket->Insert(entry.first, entry.second, cmp_);
+      } else if (target_idx == split_idx) {
+        split_bucket->Insert(entry.first, entry.second, cmp_);
+      } else {
+        return false;
+      }
     }
     return true;
+  }
+
+  void MaybeMergeBucket(ExtendibleHTableDirectoryPage *directory, uint32_t bucket_idx) {
+    if (directory->GetLocalDepth(bucket_idx) == 0) {
+      return;
+    }
+    uint32_t split_idx = directory->GetSplitImageIndex(bucket_idx);
+    page_id_t split_page_id = directory->GetBucketPageId(split_idx);
+
+    if (directory->GetLocalDepth(split_idx) != directory->GetLocalDepth(bucket_idx)) {
+      return;
+    }
+
+    page_id_t bucket_page_id = directory->GetBucketPageId(bucket_idx);
+    auto bucket = bpm_->FetchPageBasic(bucket_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
+
+    auto split_bucket = bpm_->FetchPageBasic(split_page_id).AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
+
+    if (!bucket->IsEmpty() && !split_bucket->IsEmpty()) {
+      return;
+    }
+
+    directory->DecrLocalDepth(split_idx);
+    uint32_t local_depth = directory->GetLocalDepth(split_idx);
+    directory->SetBucketPageId(bucket_idx, split_page_id);
+    directory->SetLocalDepth(bucket_idx, local_depth);
+
+    // update all related bucket pointers
+    uint32_t idx_diff = 1 << local_depth;
+    for (int i = split_idx - idx_diff; i >= 0; i -= idx_diff) {
+      directory->SetBucketPageId(i, split_page_id);
+      directory->SetLocalDepth(i, local_depth);
+    }
+    for (int i = split_idx + idx_diff; i < int(directory->Size()); i += idx_diff) {
+      directory->SetBucketPageId(i, split_page_id);
+      directory->SetLocalDepth(i, local_depth);
+    }
+
+    MaybeMergeBucket(directory, bucket_idx);
   }
 
   // member variables

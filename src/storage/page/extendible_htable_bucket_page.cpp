@@ -34,6 +34,10 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Lookup(const K &key, V &value, const 
   }
 
   uint32_t idx = KeyIndex(key, cmp);
+  if (idx >= max_size_) {
+    return false;
+  }
+
   if (cmp(key, KeyAt(idx)) == 0) {
     value = ValueAt(idx);
     return true;
