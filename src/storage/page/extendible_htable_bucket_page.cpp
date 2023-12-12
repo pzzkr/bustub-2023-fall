@@ -108,7 +108,7 @@ auto ExtendibleHTableBucketPage<K, V, KC>::KeyIndex(const K &key, const KC &cmp)
 template <typename K, typename V, typename KC>
 void ExtendibleHTableBucketPage<K, V, KC>::InsertAt(uint32_t idx, const K &key, const V &value) {
   int size = Size();
-  for (int i = size - 1; i >= size; i--) {
+  for (int i = size - 1; i >= int(idx); i--) {
     array_[i + 1] = array_[i];
   }
   array_[idx] = {key, value};
