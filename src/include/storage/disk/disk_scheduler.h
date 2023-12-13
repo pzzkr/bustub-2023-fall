@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include <readerwriterqueue/readerwriterqueue.h>
 #include <future>  // NOLINT
+#include <iostream>
 #include <optional>
 #include <thread>  // NOLINT
 
@@ -20,6 +22,26 @@
 #include "storage/disk/disk_manager.h"
 
 namespace bustub {
+
+struct DiskSchedulerFuture {
+  auto get() -> bool {  // NOLINT
+    bool result;
+    rwq_->wait_dequeue(result);
+    return result;
+  }
+
+  std::shared_ptr<moodycamel::BlockingReaderWriterQueue<bool>> rwq_;
+};
+
+struct DiskSchedulerPromise {
+  DiskSchedulerPromise() { rwq_ = std::make_shared<moodycamel::BlockingReaderWriterQueue<bool>>(); }
+
+  void set_value(bool value) { rwq_->enqueue(value); }  // NOLINT
+
+  auto get_future() -> DiskSchedulerFuture { return {rwq_}; }  // NOLINT
+
+  std::shared_ptr<moodycamel::BlockingReaderWriterQueue<bool>> rwq_;
+};
 
 /**
  * @brief Represents a Write or Read request for the DiskManager to execute.
@@ -39,7 +61,7 @@ struct DiskRequest {
   page_id_t page_id_;
 
   /** Callback used to signal to the request issuer when the request has been completed. */
-  std::promise<bool> callback_;
+  DiskSchedulerPromise callback_;
 };
 
 /**
@@ -73,7 +95,7 @@ class DiskScheduler {
    */
   void StartWorkerThread();
 
-  using DiskSchedulerPromise = std::promise<bool>;
+  using DiskSchedulerPromise = DiskSchedulerPromise;
 
   /**
    * @brief Create a Promise object. If you want to implement your own version of promise, you can change this function

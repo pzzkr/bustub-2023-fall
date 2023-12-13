@@ -96,7 +96,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   pages_[frame_id].pin_count_ = 1;
   disk_scheduler_->Schedule({/*is_write=*/false, pages_[frame_id].GetData(), /*page_id=*/page_id, std::move(promise)});
 
-  future.wait();
+  future.get();
 
   page_table_.insert({page_id, frame_id});
   replacer_->RecordAccess(frame_id);
@@ -149,7 +149,7 @@ auto BufferPoolManager::FlushPgInternal(page_id_t page_id) -> bool {
 
     disk_scheduler_->Schedule({/*is_write=*/true, pages_[frame_id].GetData(), /*page_id=*/page_id, std::move(promise)});
 
-    future.wait();
+    future.get();
   }
 
   if (pages_[frame_id].pin_count_ > 0) {
