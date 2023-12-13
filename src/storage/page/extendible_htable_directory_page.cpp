@@ -28,7 +28,7 @@ void ExtendibleHTableDirectoryPage::Init(uint32_t max_depth) {
 }
 
 auto ExtendibleHTableDirectoryPage::HashToBucketIndex(uint32_t hash) const -> uint32_t {
-  int mask = GetGlobalDepthMask();
+  uint32_t mask = GetGlobalDepthMask();
   return hash & mask;
 }
 

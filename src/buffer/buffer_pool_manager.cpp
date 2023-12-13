@@ -23,7 +23,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager
     : pool_size_(pool_size), disk_scheduler_(std::make_unique<DiskScheduler>(disk_manager)), log_manager_(log_manager) {
   // we allocate a consecutive memory space for the buffer pool
   pages_ = new Page[pool_size_];
-  replacer_ = std::make_unique<LRUKReplacer>(pool_size, replacer_k);
+  replacer_ = std::make_unique<LRUKReplacer>(pool_size_, replacer_k);
 
   // Initially, every page is in the free list.
   for (size_t i = 0; i < pool_size_; ++i) {
@@ -38,7 +38,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager
 BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
-  std::lock_guard<std::mutex> lock(latch_);
+  std::lock_guard<std::shared_mutex> lock(latch_);
   // find a fresh frame id
   frame_id_t frame_id;
   if (free_list_.empty()) {
@@ -67,9 +67,27 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
 }
 
 auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
-  std::lock_guard<std::mutex> lock(latch_);
+  std::unique_lock<std::shared_mutex> lock(latch_);
   // return if found in buffer pool
   frame_id_t frame_id;
+  if (page_table_.find(page_id) != page_table_.end()) {
+    frame_id = page_table_.find(page_id)->second;
+    pages_[frame_id].pin_count_++;
+    replacer_->SetEvictable(frame_id, false);
+    return &pages_[frame_id];
+  }
+  lock.unlock();
+
+  auto promise = disk_scheduler_->CreatePromise();
+  auto future = promise.get_future();
+
+  // async fetch page from disk
+  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);  // new char[BUSTUB_PAGE_SIZE];
+  disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
+  future.wait();
+
+  lock.lock();
+  // check if this page is already in the pool
   if (page_table_.find(page_id) != page_table_.end()) {
     frame_id = page_table_.find(page_id)->second;
     pages_[frame_id].pin_count_++;
@@ -87,18 +105,16 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   frame_id = free_list_.front();
   free_list_.pop_front();
 
-  auto promise = disk_scheduler_->CreatePromise();
-  auto future = promise.get_future();
+  // insert this page into the pool
+  page_table_.insert({page_id, frame_id});
 
-  // fetch page from disk
   pages_[frame_id].page_id_ = page_id;
   pages_[frame_id].is_dirty_ = false;
   pages_[frame_id].pin_count_ = 1;
-  disk_scheduler_->Schedule({/*is_write=*/false, pages_[frame_id].GetData(), /*page_id=*/page_id, std::move(promise)});
 
-  future.wait();
+  memcpy(pages_[frame_id].GetData(), data.get(), BUSTUB_PAGE_SIZE);
+  lock.unlock();
 
-  page_table_.insert({page_id, frame_id});
   replacer_->RecordAccess(frame_id);
   replacer_->SetEvictable(frame_id, false);
 
@@ -106,7 +122,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
 }
 
 auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unused]] AccessType access_type) -> bool {
-  std::lock_guard<std::mutex> lock(latch_);
+  std::lock_guard<std::shared_mutex> lock(latch_);
   // find page from buffer pool
   frame_id_t frame_id;
   if (page_table_.find(page_id) == page_table_.end()) {
@@ -131,7 +147,7 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
 }
 
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
-  std::lock_guard<std::mutex> lock(latch_);
+  std::lock_guard<std::shared_mutex> lock(latch_);
   return FlushPgInternal(page_id);
 }
 
@@ -176,7 +192,7 @@ void BufferPoolManager::FlushAllPages() {
 }
 
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
-  std::lock_guard<std::mutex> lock(latch_);
+  std::lock_guard<std::shared_mutex> lock(latch_);
   // find page from buffer pool
   frame_id_t frame_id;
   if (page_table_.find(page_id) == page_table_.end()) {
