@@ -84,7 +84,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   // async fetch page from disk
   auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
   disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
-  future.wait();
+  future.get();
 
   lock.lock();
   // check if this page is already in the pool
@@ -165,7 +165,7 @@ auto BufferPoolManager::FlushPgInternal(page_id_t page_id) -> bool {
 
     disk_scheduler_->Schedule({/*is_write=*/true, pages_[frame_id].GetData(), /*page_id=*/page_id, std::move(promise)});
 
-    future.wait();
+    future.get();
   }
 
   if (pages_[frame_id].pin_count_ > 0) {
