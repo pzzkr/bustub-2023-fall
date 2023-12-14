@@ -82,7 +82,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   auto future = promise.get_future();
 
   // async fetch page from disk
-  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);  // new char[BUSTUB_PAGE_SIZE];
+  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
   disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
   future.wait();
 
