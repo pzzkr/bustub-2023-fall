@@ -35,6 +35,9 @@ auto BasicPageGuard::operator=(BasicPageGuard &&that) noexcept -> BasicPageGuard
 BasicPageGuard::~BasicPageGuard() { Drop(); }
 
 auto BasicPageGuard::UpgradeRead() -> ReadPageGuard {
+  if (page_ != nullptr) {
+    page_->RLatch();
+  }
   auto read_page_guard = ReadPageGuard(bpm_, page_);
   bpm_ = nullptr;
   page_ = nullptr;
@@ -42,6 +45,9 @@ auto BasicPageGuard::UpgradeRead() -> ReadPageGuard {
 }
 
 auto BasicPageGuard::UpgradeWrite() -> WritePageGuard {
+  if (page_ != nullptr) {
+    page_->WLatch();
+  }
   auto write_page_guard = WritePageGuard(bpm_, page_);
   bpm_ = nullptr;
   page_ = nullptr;

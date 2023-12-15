@@ -130,7 +130,7 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
   }
   frame_id = page_table_.find(page_id)->second;
 
-  // return false if pin_count_ > 0
+  // return false if pin_count_ <= 0
   if (pages_[frame_id].pin_count_ <= 0) {
     return false;
   }
