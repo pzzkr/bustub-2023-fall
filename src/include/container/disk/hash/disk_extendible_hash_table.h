@@ -144,14 +144,14 @@ class DiskExtendibleHashTable {
     for (int i = bucket_idx - idx_diff; i >= 0; i -= idx_diff) {
       directory->SetLocalDepth(i, local_depth);
     }
-    for (int i = bucket_idx + idx_diff; i < int(directory->Size()); i += idx_diff) {
+    for (int i = bucket_idx + idx_diff; i < static_cast<int>(directory->Size()); i += idx_diff) {
       directory->SetLocalDepth(i, local_depth);
     }
     for (int i = split_idx - idx_diff; i >= 0; i -= idx_diff) {
       directory->SetBucketPageId(i, split_page_id);
       directory->SetLocalDepth(i, local_depth);
     }
-    for (int i = split_idx + idx_diff; i < int(directory->Size()); i += idx_diff) {
+    for (int i = split_idx + idx_diff; i < static_cast<int>(directory->Size()); i += idx_diff) {
       directory->SetBucketPageId(i, split_page_id);
       directory->SetLocalDepth(i, local_depth);
     }
@@ -220,7 +220,7 @@ class DiskExtendibleHashTable {
         directory->SetBucketPageId(i, bucket_page_id);
         directory->SetLocalDepth(i, local_depth);
       }
-      for (int i = bucket_idx + idx_diff; i < int(directory->Size()); i += idx_diff) {
+      for (int i = bucket_idx + idx_diff; i < static_cast<int>(directory->Size()); i += idx_diff) {
         directory->SetBucketPageId(i, bucket_page_id);
         directory->SetLocalDepth(i, local_depth);
       }
