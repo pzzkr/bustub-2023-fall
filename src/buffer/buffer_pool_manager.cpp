@@ -67,6 +67,11 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
 }
 
 auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
+  // isolate scan operations from buffer pool
+  if (access_type == AccessType::Scan) {
+    return FetchPageBypass(page_id);
+  }
+
   std::unique_lock<std::shared_mutex> lock(latch_);
   // return if found in buffer pool
   frame_id_t frame_id;
@@ -121,7 +126,42 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   return &pages_[frame_id];
 }
 
+auto BufferPoolManager::FetchPageBypass(page_id_t page_id) -> Page * {
+  auto promise = disk_scheduler_->CreatePromise();
+  auto future = promise.get_future();
+
+  // async fetch page from disk
+  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
+  disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
+  future.get();
+
+  std::unique_lock<std::shared_mutex> lock(latch_);
+
+  // store this page in the bypass table
+  std::shared_ptr<Page> page;
+  if (bypass_page_table_.find(page_id) == bypass_page_table_.end()) {
+    page = std::make_shared<Page>();
+    memcpy(page->data_, data.get(), BUSTUB_PAGE_SIZE);
+    page->page_id_ = page_id;
+    page->is_dirty_ = false;
+    page->pin_count_ = 0;
+  } else {
+    page = bypass_page_table_.find(page_id)->second;
+  }
+
+  page->pin_count_++;
+
+  bypass_page_table_.insert({page_id, page});
+
+  return page.get();
+}
+
 auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unused]] AccessType access_type) -> bool {
+  // isolate scan operations from buffer pool
+  if (access_type == AccessType::Scan) {
+    return UnpinPageBypass(page_id, is_dirty);
+  }
+
   std::lock_guard<std::shared_mutex> lock(latch_);
   // find page from buffer pool
   frame_id_t frame_id;
@@ -141,6 +181,36 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
 
   if (--pages_[frame_id].pin_count_ == 0) {
     replacer_->SetEvictable(frame_id, true);
+  }
+
+  return true;
+}
+
+auto BufferPoolManager::UnpinPageBypass(page_id_t page_id, bool is_dirty) -> bool {
+  std::lock_guard<std::shared_mutex> lock(latch_);
+
+  if (bypass_page_table_.find(page_id) == bypass_page_table_.end()) {
+    return false;
+  }
+
+  auto page = bypass_page_table_.find(page_id)->second;
+  if (is_dirty) {
+    page->is_dirty_ = true;
+  }
+
+  // flush the page in disk when its pin count is 0
+  if (--page->pin_count_ == 0) {
+    if (page->IsDirty()) {
+      auto promise = disk_scheduler_->CreatePromise();
+      auto future = promise.get_future();
+
+      disk_scheduler_->Schedule({/*is_write=*/true, page->GetData(), /*page_id=*/page_id, std::move(promise)});
+
+      future.get();
+    }
+
+    bypass_page_table_.erase(page_id);
+    return true;
   }
 
   return true;

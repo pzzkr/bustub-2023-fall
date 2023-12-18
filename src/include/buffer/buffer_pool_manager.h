@@ -103,6 +103,7 @@ class BufferPoolManager {
    * @return nullptr if page_id cannot be fetched, otherwise pointer to the requested page
    */
   auto FetchPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> Page *;
+  auto FetchPageBypass(page_id_t page_id) -> Page *;
 
   /**
    * TODO(P2): Add implementation
@@ -136,6 +137,7 @@ class BufferPoolManager {
    * @return false if the page is not in the page table or its pin count is <= 0 before this call, true otherwise
    */
   auto UnpinPage(page_id_t page_id, bool is_dirty, AccessType access_type = AccessType::Unknown) -> bool;
+  auto UnpinPageBypass(page_id_t page_id, bool is_dirty) -> bool;
 
   /**
    * TODO(P1): Add implementation
@@ -194,6 +196,7 @@ class BufferPoolManager {
   std::list<frame_id_t> free_list_;
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
   std::shared_mutex latch_;
+  std::unordered_map<page_id_t, std::shared_ptr<Page>> bypass_page_table_;
 
   /**
    * @brief Allocate a page on disk. Caller should acquire the latch before calling this function.
