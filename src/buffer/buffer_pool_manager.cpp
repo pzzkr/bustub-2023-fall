@@ -18,6 +18,8 @@
 
 namespace bustub {
 
+static int fetch_num = 4;
+
 BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager, size_t replacer_k,
                                      LogManager *log_manager)
     : pool_size_(pool_size), disk_scheduler_(std::make_unique<DiskScheduler>(disk_manager)), log_manager_(log_manager) {
@@ -127,33 +129,71 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
 }
 
 auto BufferPoolManager::FetchPageBypass(page_id_t page_id) -> Page * {
-  auto promise = disk_scheduler_->CreatePromise();
-  auto future = promise.get_future();
-
-  // async fetch page from disk
-  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
-  disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
-  future.get();
-
   std::unique_lock<std::shared_mutex> lock(latch_);
 
   // store this page in the bypass table
   std::shared_ptr<Page> page;
   if (bypass_page_table_.find(page_id) == bypass_page_table_.end()) {
+    lock.unlock();
+
     page = std::make_shared<Page>();
+
+    // async fetch page from disk
+    auto promise = disk_scheduler_->CreatePromise();
+    auto future = promise.get_future();
+
+    auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
+    disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
+    future.get();
+
     memcpy(page->data_, data.get(), BUSTUB_PAGE_SIZE);
     page->page_id_ = page_id;
     page->is_dirty_ = false;
     page->pin_count_ = 0;
+
+    lock.lock();
   } else {
     page = bypass_page_table_.find(page_id)->second;
   }
 
   page->pin_count_++;
-
   bypass_page_table_.insert({page_id, page});
+  lock.unlock();
+
+  // prefetch subsequent pages
+  if (page_id % fetch_num == 0) {
+    std::vector<std::shared_ptr<Page>> prefetched_pages;
+    page_id_t start_page_id = page_id + 1;
+    page_id_t end_page_id = page_id + fetch_num;
+    for (page_id_t i = start_page_id; i < end_page_id && i < next_page_id_; i++) {
+      prefetched_pages.push_back(PrefetchPage(i));
+    }
+
+    lock.lock();
+    for (page_id_t i = start_page_id; i < end_page_id && i < next_page_id_; i++) {
+      bypass_page_table_.insert({i, prefetched_pages[i - start_page_id]});
+    }
+  }
 
   return page.get();
+}
+
+auto BufferPoolManager::PrefetchPage(page_id_t page_id) -> std::shared_ptr<Page> {
+  auto page = std::make_shared<Page>();
+
+  auto promise = disk_scheduler_->CreatePromise();
+  auto future = promise.get_future();
+
+  auto data = std::make_unique<char[]>(BUSTUB_PAGE_SIZE);
+  disk_scheduler_->Schedule({/*is_write=*/false, data.get(), /*page_id=*/page_id, std::move(promise)});
+  future.get();
+
+  memcpy(page->data_, data.get(), BUSTUB_PAGE_SIZE);
+  page->page_id_ = page_id;
+  page->is_dirty_ = false;
+  page->pin_count_ = 0;
+
+  return page;
 }
 
 auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unused]] AccessType access_type) -> bool {

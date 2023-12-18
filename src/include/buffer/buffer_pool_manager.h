@@ -104,6 +104,7 @@ class BufferPoolManager {
    */
   auto FetchPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> Page *;
   auto FetchPageBypass(page_id_t page_id) -> Page *;
+  auto PrefetchPage(page_id_t page_id) -> std::shared_ptr<Page>;
 
   /**
    * TODO(P2): Add implementation
