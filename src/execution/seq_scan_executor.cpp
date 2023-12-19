@@ -15,26 +15,35 @@
 namespace bustub {
 
 SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan)
-    : AbstractExecutor(exec_ctx),
-      plan_(plan),
-      iter_(GetExecutorContext()->GetCatalog()->GetTable(plan_->GetTableOid())->table_->MakeIterator()) {}
+    : AbstractExecutor(exec_ctx), plan_(plan) {}
 
-void SeqScanExecutor::Init() {}
+void SeqScanExecutor::Init() {
+  table_heap_ = GetExecutorContext()->GetCatalog()->GetTable(plan_->GetTableOid())->table_.get();
+
+  auto iter = table_heap_->MakeIterator();
+  rids_.clear();
+  while (!iter.IsEnd()) {
+    rids_.push_back(iter.GetRID());
+    ++iter;
+  }
+  rids_iter_ = rids_.begin();
+}
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   TupleMeta meta{};
   do {
-    if (iter_.IsEnd()) {
+    if (rids_iter_ == rids_.end()) {
       return false;
     }
 
-    meta = iter_.GetTuple().first;
+    meta = table_heap_->GetTuple(*rids_iter_).first;
+    ;
     if (!meta.is_deleted_) {
-      *tuple = iter_.GetTuple().second;
-      *rid = iter_.GetRID();
+      *tuple = table_heap_->GetTuple(*rids_iter_).second;
+      *rid = *rids_iter_;
     }
 
-    ++iter_;
+    ++rids_iter_;
   } while (meta.is_deleted_ ||
            (plan_->filter_predicate_ != nullptr &&
             !plan_->filter_predicate_
