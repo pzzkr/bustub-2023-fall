@@ -30,16 +30,15 @@ void AggregationExecutor::Init() {
 
   Tuple child_tuple{};
   RID rid;
-  if (!plan_->aggregates_.empty() || !plan_->group_bys_.empty()) {
-    while (child_executor_->Next(&child_tuple, &rid)) {
-      aht_.InsertCombine(MakeAggregateKey(&child_tuple), MakeAggregateValue(&child_tuple));
-    }
-    if (aht_.Begin() == aht_.End() && plan_->GetGroupBys().empty()) {
-      aht_.InitCombine(MakeAggregateKey(&child_tuple));
-    }
 
-    aht_iterator_ = aht_.Begin();
+  while (child_executor_->Next(&child_tuple, &rid)) {
+    aht_.InsertCombine(MakeAggregateKey(&child_tuple), MakeAggregateValue(&child_tuple));
   }
+  if (aht_.Size() == 0 && GetOutputSchema().GetColumnCount() == 1) {
+    aht_.InsertEmptyCombine();
+  }
+
+  aht_iterator_ = aht_.Begin();
 }
 
 auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
