@@ -9,12 +9,12 @@ SortExecutor::SortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan,
 void SortExecutor::Init() {
   child_executor_->Init();
 
-  child_tuples_.clear();
+  tuples_.clear();
 
   Tuple child_tuple{};
   RID child_rid;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
-    child_tuples_.push_back(child_tuple);
+    tuples_.push_back(child_tuple);
   }
 
   auto cmp = [order_bys = plan_->order_bys_, schema = child_executor_->GetOutputSchema()](const Tuple &a,
@@ -46,13 +46,13 @@ void SortExecutor::Init() {
     return false;
   };
 
-  std::sort(child_tuples_.begin(), child_tuples_.end(), cmp);
+  std::sort(tuples_.begin(), tuples_.end(), cmp);
 
-  iter_ = child_tuples_.begin();
+  iter_ = tuples_.begin();
 }
 
 auto SortExecutor::Next(Tuple *tuple, RID *rid) -> bool {
-  if (iter_ == child_tuples_.end()) {
+  if (iter_ == tuples_.end()) {
     return false;
   }
 
