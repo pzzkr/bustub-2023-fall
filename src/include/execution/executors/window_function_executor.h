@@ -120,8 +120,8 @@ class WindowFunctionExecutor : public AbstractExecutor {
           output_schema_(&output_schema),
           tuples_(tuples) {}
 
-    // Aggregate the tuples [it0, it1);
-    void Compute(TupleIterator it0, TupleIterator it1, TupleIterator begin_iter) {
+    // Aggregate the partition between tuples [lower_bound_iter, upper_bound_iter);
+    void Compute(TupleIterator lower_bound_iter, TupleIterator upper_bound_iter, TupleIterator begin_iter) {
       AggregationType agg_type;
       Value default_value;
 
@@ -158,29 +158,37 @@ class WindowFunctionExecutor : public AbstractExecutor {
         SimpleAggregationHashTable aht{agg_exprs, agg_types};
         aht.Clear();
 
-        AggregateKey agg_key = MakeAggregateKey(&(*it0));
+        AggregateKey agg_key = MakeAggregateKey(&(*lower_bound_iter));
 
+        // if order_by is omitted, do a global aggregation
         if (order_by_omitted_) {
-          for (auto cur_it = it0; cur_it != it1; ++cur_it) {
-            AggregateValue agg_value = MakeAggregateValue(&(*cur_it));
+          for (auto iter = lower_bound_iter; iter != upper_bound_iter; ++iter) {
+            AggregateValue agg_value = MakeAggregateValue(&(*iter));
             aht.InsertCombine(agg_key, agg_value);
           }
         }
 
-        for (auto cur_it = it0; cur_it != it1; ++cur_it) {
-          auto tuple_iter = tuples_.begin() + std::distance(begin_iter, cur_it);
+        for (auto iter = lower_bound_iter; iter != upper_bound_iter; ++iter) {
+          auto tuple_iter = tuples_.begin() + std::distance(begin_iter, iter);
 
+          // if order_by is valid, do a moving aggregation
           if (!order_by_omitted_) {
-            AggregateValue agg_value = MakeAggregateValue(&(*cur_it));
+            AggregateValue agg_value = MakeAggregateValue(&(*iter));
             aht.InsertCombine(agg_key, agg_value);
           }
 
           std::vector<Value> values{};
           for (uint32_t idx = 0; idx < output_schema_->GetColumns().size(); idx++) {
+            /*
+             * If it is this window function column, the value is the aggregation value
+             * If it is not a window function column, the value should be from the child tuple
+             * If it is another window function column, keep it as is
+             * Else, the tuple is still growing, let's populate a default value
+             * */
             if (idx == function_column_idx_) {
               values.push_back(aht.Begin().Val().aggregates_.begin()[0]);
             } else if (function_column_idx_set_.count(idx) == 0) {
-              values.push_back(columns_[idx]->Evaluate(&(*cur_it), *child_schema_));
+              values.push_back(columns_[idx]->Evaluate(&(*iter), *child_schema_));
             } else if (tuple_iter < tuples_.end()) {
               values.push_back(tuple_iter->GetValue(output_schema_, idx));
             } else {
@@ -197,19 +205,19 @@ class WindowFunctionExecutor : public AbstractExecutor {
       } else {
         int global_rank = 0;
         int local_rank = 0;
-        for (auto cur_it = it0; cur_it != it1; ++cur_it) {
-          auto tuple_iter = tuples_.begin() + std::distance(begin_iter, cur_it);
+        for (auto iter = lower_bound_iter; iter != upper_bound_iter; ++iter) {
+          auto tuple_iter = tuples_.begin() + std::distance(begin_iter, iter);
 
           std::vector<Value> values{};
           for (uint32_t idx = 0; idx < output_schema_->GetColumns().size(); idx++) {
             if (idx == function_column_idx_) {
               ++global_rank;
-              if (local_rank == 0 || !Equal(*cur_it, *(cur_it - 1))) {
+              if (local_rank == 0 || !Equal(*iter, *(iter - 1))) {
                 local_rank = global_rank;
               }
               values.push_back(ValueFactory::GetIntegerValue(local_rank));
             } else if (function_column_idx_set_.count(idx) == 0) {
-              values.push_back(columns_[idx]->Evaluate(&(*cur_it), *child_schema_));
+              values.push_back(columns_[idx]->Evaluate(&(*iter), *child_schema_));
             } else if (tuple_iter < tuples_.end()) {
               values.push_back(tuple_iter->GetValue(output_schema_, idx));
             } else {
